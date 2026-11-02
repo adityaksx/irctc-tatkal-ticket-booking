@@ -2,7 +2,7 @@ import {
   JOURNEY_SELECTORS,
   MODIFY_SEARCH_SELECTORS
 } from './domSelectors';
-import { delay } from './utils';
+import { delay, waitForElementToAppear } from './utils';
 import logger from './logger';
 
 import { from, to, quotaType, isOpeningDayBooking, dateString, targetTime as targetTimeString } from './storage';
@@ -12,6 +12,8 @@ const shouldUseTimedSearch = () =>
   (quotaType === 'GENERAL' && isOpeningDayBooking);
 
 async function autoComplete(element, value) {
+  if (!element) return;
+  
   // Focus on the autocomplete input to trigger the generation of options
   element.focus();
 
@@ -34,6 +36,7 @@ async function autoComplete(element, value) {
     await firstItem.click();
   }
 }
+
 async function typeDate(element, mydate) {
   if (!element) return;
 
@@ -48,81 +51,80 @@ async function typeDate(element, mydate) {
 
   // Iterate over each character of the date string and type it
   for (const char of mydate) {
-    // Set the value of the input field to the current character
     element.value += char;
-
-    // Trigger input event after typing each character
     element.dispatchEvent(new Event('input', { bubbles: true }));
-
-    // Trigger keydown event with the current character
     element.dispatchEvent(new KeyboardEvent('keydown', { key: char }));
-
-    // Wait for a short delay before typing the next character
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await delay(100);
   }
 
   // Trigger blur event to simulate losing focus
   element.dispatchEvent(new Event('blur', { bubbles: true }));
 }
-async function selectQuota(element,value) {
 
-   await element.click();
+async function selectQuota(element, value) {
+  if (!element) return;
+  await element.click();
 
-   // Simulate an onChange event to trigger the autocomplete options
-   var inputEvent = new Event('onChange', {
-     bubbles: true,
-     cancelable: true,
-   });
+  // Simulate an onChange event to trigger the autocomplete options
+  var inputEvent = new Event('onChange', {
+    bubbles: true,
+    cancelable: true,
+  });
 
-   element.dispatchEvent(inputEvent);
+  element.dispatchEvent(inputEvent);
+  await delay(500);
 
-   delay(500);
-
-  // Get all list items within the autocomplete dropdown
   var listItems = document.querySelectorAll(JOURNEY_SELECTORS.JOURNEY_QUOTA_LIST);
-
-  // Loop through each list item
   for (let item of listItems) {
-    // Get the text content of the list item
     const itemText = item.textContent.trim();
-
-    // Check if the text content contains the name substring (case-insensitive)
     if (itemText.toLowerCase().includes(value.toLowerCase())) {
-      // Select the list item by simulating a click
       item.click();
       break;
     }
   }
 }
+
 // Function to fill Journey Details
 async function searchTrain(){
+  // Wait for the components to actually render in the DOM before querying them
+  await waitForElementToAppear(JOURNEY_SELECTORS.ORIGIN_STATION_CODE);
+  
   let journeyInput = document.querySelector(JOURNEY_SELECTORS.JOURNEY_INPUT_COMPONENT);
   let origin = journeyInput.querySelector(JOURNEY_SELECTORS.ORIGIN_STATION_CODE);
   let destination = journeyInput.querySelector(JOURNEY_SELECTORS.DESTINATION_STATION_CODE);
   let quota = journeyInput.querySelector(JOURNEY_SELECTORS.JOURNEY_QUOTA);
   let jDate = journeyInput.querySelector(JOURNEY_SELECTORS.JOURNEY_DATE);
 
-  await autoComplete(origin,from);
-  await autoComplete(destination,to);
-  await typeDate(jDate,dateString);
-  await selectQuota(quota,quotaType);
+  await autoComplete(origin, from);
+  await autoComplete(destination, to);
+  await typeDate(jDate, dateString);
+  await selectQuota(quota, quotaType);
 }
+
 // Function to update Journey Details
 async function modifySearchTrain(){
+  await waitForElementToAppear(JOURNEY_SELECTORS.ORIGIN_STATION_CODE);
+  
   let journeyInput = document.querySelector(MODIFY_SEARCH_SELECTORS.MODIFY_SEARCH_COMPONENT);
   let origin = journeyInput.querySelector(JOURNEY_SELECTORS.ORIGIN_STATION_CODE);
   let destination = journeyInput.querySelector(JOURNEY_SELECTORS.DESTINATION_STATION_CODE);
   let quota = journeyInput.querySelector(JOURNEY_SELECTORS.JOURNEY_QUOTA);
   let jDate = journeyInput.querySelector(MODIFY_SEARCH_SELECTORS.MODIFY_JOURNEY_DATE);
 
-  await autoComplete(origin,from);
-  await autoComplete(destination,to);
-  await typeDate(jDate,dateString);
-  await selectQuota(quota,quotaType);
+  await autoComplete(origin, from);
+  await autoComplete(destination, to);
+  await typeDate(jDate, dateString);
+  await selectQuota(quota, quotaType);
+  
   const searchButton = journeyInput.querySelector('button[type="submit"]');
-  await searchButton.click();
+  if (searchButton) {
+    await searchButton.click();
+  }
 }
+
 async function callSearchTrainComponent(){
+  // Wait slightly for angular route transitions to finish
+  await delay(1000); 
   let journeyComponent = document.querySelector(JOURNEY_SELECTORS.JOURNEY_INPUT_COMPONENT);
 
   if(journeyComponent){
@@ -132,6 +134,7 @@ async function callSearchTrainComponent(){
     await modifySearchTrain();
   }
 }
+
 function hasReachedTargetTime(currentTimeString, targetTimeString) {
   const [currentHour, currentMinute, currentSecond] = currentTimeString.split(':').map(Number);
   const [targetHour, targetMinute, targetSecond] = targetTimeString.split(':').map(Number);
@@ -140,6 +143,7 @@ function hasReachedTargetTime(currentTimeString, targetTimeString) {
     (currentHour === targetHour && currentMinute > targetMinute) ||
     (currentHour === targetHour && currentMinute === targetMinute && currentSecond >= targetSecond);
 }
+
 function waitForTargetTime(targetTime = targetTimeString) {
   const searchButton = document.querySelector(JOURNEY_SELECTORS.JOURNEY_SEARCH_BUTTON);
 

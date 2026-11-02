@@ -6,9 +6,17 @@ import MyDatePicker from './MyDatePicker';
 import { useAppContext } from '../contexts/AppContext';
 
 const getTargetTime = (quotaType, accommodationClass, isOpeningDayBooking, currentTargetTime) => {
-  if (quotaType === 'GENERAL') {
-    return isOpeningDayBooking ? '07:59:53' : currentTargetTime;
+  // 1. If Opening Day Booking is explicitly checked, force 8:00 AM
+  if (quotaType === 'GENERAL' && isOpeningDayBooking) {
+    return '07:59:53';
   }
+
+  // 2. If the user has already typed a custom time, keep it so dropdowns don't overwrite it
+  if (currentTargetTime) {
+    return currentTargetTime;
+  }
+
+  // 3. Default fallbacks only if the time field is completely empty
   if (['SL', 'FC', '2S', 'VS'].includes(accommodationClass)) return '10:59:53';
   return '09:59:53';
 };
