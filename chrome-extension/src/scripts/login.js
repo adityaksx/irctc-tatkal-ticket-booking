@@ -1,99 +1,118 @@
-import { LOGIN_SELECTORS } from './domSelectors';
-import { scrollToElement } from './elementUtils';
-import { delay, simulateTyping, waitForElementToAppear } from './utils';
-import Logger from './logger';
+import { LOGIN_SELECTORS } from "./domSelectors";
+import {
+  delay,
+  fillInput,
+  scrollToElement,
+  simulateTyping,
+  waitForElementToAppear,
+} from "./elementUtils";
+import Logger from "./logger";
+import { extractTextFromImage } from "./ocr-reader";
 
-import { username, password } from './storage';
-import extractTextFromImage from './ocr-reader';
+export async function login(settings) {
+  try {
+    const { username, password } = settings.loginDetails || {};
 
-async function fillLoginCaptcha() {
-  // Wait for the captcha image to appear
-  await waitForElementToAppear(LOGIN_SELECTORS.LOGIN_CAPTCHA_IMAGE);
-
-  // Find the captcha image and input field
-  var captchaImage = document.querySelector(LOGIN_SELECTORS.LOGIN_CAPTCHA_IMAGE);
-  var captchaInput = document.querySelector(LOGIN_SELECTORS.LOGIN_CAPTCHA_INPUT);
-
-  if (!captchaImage || !captchaInput) {
-      Logger.warn("Captcha image or input field not found!");
+    if (!username || !password) {
+      Logger.warn("Username or password not provided in settings.");
       return;
-  }
+    }
 
-  // Scroll the captcha input field into view smoothly
-  await scrollToElement(captchaInput);
+    // --- 1. Open the login modal if it isn't already open ---
+    let loginModal = document.querySelector(LOGIN_SELECTORS.LOGIN_COMPONENT);
+    if (!loginModal) {
+      const loginButton = document.querySelector(LOGIN_SELECTORS.LOGIN_BUTTON);
+      if (loginButton) {
+        loginButton.click();
+        await waitForElementToAppear(LOGIN_SELECTORS.LOGIN_COMPONENT, 5000);
+        loginModal = document.querySelector(LOGIN_SELECTORS.LOGIN_COMPONENT);
+      }
+    }
 
-  // Extract text from captcha image using OCR
-  let captchaText = await extractTextFromImage(captchaImage.src);
-  Logger.info("Captcha text:",captchaText);
-  
-  // Prompt user with the extracted text (allowing edits)
-  let userInput = prompt("Please enter the Captcha:", captchaText);
+    if (!loginModal) {
+      Logger.error("Login modal could not be found.");
+      return;
+    }
 
-  // Fill the captcha input field with the user-confirmed value
-  if (userInput) {
-      await simulateTyping(captchaInput, userInput);
-      await delay(50);
+    // --- 2. Fill username ---
+    const usernameInput = loginModal.querySelector(LOGIN_SELECTORS.LOGIN_USERID);
+    if (usernameInput) {
+      await fillInput(usernameInput, username);
+      await delay(100);
+    } else {
+      Logger.warn("Username input not found in login modal.");
+    }
+
+    // --- 3. Fill password ---
+    const passwordInput = loginModal.querySelector(LOGIN_SELECTORS.LOGIN_PASSWORD);
+    if (passwordInput) {
+      await fillInput(passwordInput, password);
+      await delay(100);
+    } else {
+      Logger.warn("Password input not found in login modal.");
+    }
+
+    // --- 4. CAPTCHA is OPTIONAL ---
+    // IRCTC now uses silent anti-bot checks and often renders no captcha at all.
+    // We must NOT block on waitForElementToAppear here.
+    const captchaImg = loginModal.querySelector(LOGIN_SELECTORS.LOGIN_CAPTCHA_IMAGE);
+    const captchaInput = loginModal.querySelector(LOGIN_SELECTORS.LOGIN_CAPTCHA_INPUT);
+
+    if (captchaImg && captchaInput) {
+      Logger.info("Captcha detected. Attempting to solve/fill...");
+      await fillLoginCaptcha(loginModal);
+    } else {
+      Logger.info("No captcha found. Proceeding straight to sign-in.");
+    }
+
+    // --- 5. Click Sign In ---
+    const signInButton =
+      loginModal.querySelector('button[type="submit"]') ||
+      loginModal.querySelector(".search_btn.train_Search");
+
+    if (signInButton) {
+      await delay(150);
+      signInButton.click();
+      Logger.info("Sign In button clicked.");
+    } else {
+      Logger.error("Sign in submit button not found.");
+    }
+  } catch (err) {
+    Logger.error("Error during login execution:", err);
   }
 }
 
+/**
+ * Best-effort captcha solving. Never throws and never assumes the
+ * captcha elements still exist by the time this runs.
+ */
+async function fillLoginCaptcha(modal) {
+  const captchaImage = modal.querySelector(LOGIN_SELECTORS.LOGIN_CAPTCHA_IMAGE);
+  const captchaInput = modal.querySelector(LOGIN_SELECTORS.LOGIN_CAPTCHA_INPUT);
 
-// Function to Login
-async function login() {
-    let loginButton = document.querySelector(LOGIN_SELECTORS.LOGIN_BUTTON);
-    if(loginButton){
-      await loginButton.click();
-    }
-    await waitForElementToAppear(LOGIN_SELECTORS.LOGIN_COMPONENT);
-    await waitForElementToAppear(LOGIN_SELECTORS.LOGIN_CAPTCHA_IMAGE);
-  
-    let loginModal = document.querySelector(LOGIN_SELECTORS.LOGIN_COMPONENT);
-  
-    if (!loginModal) return;
-  
-    const usernameInput = loginModal.querySelector(LOGIN_SELECTORS.LOGIN_USERID);
-    const passwordInput = loginModal.querySelector(LOGIN_SELECTORS.LOGIN_PASSWORD);
-    await simulateTyping(usernameInput, username);
-    await simulateTyping(passwordInput, password);
-    if(username && password){
-      await fillLoginCaptcha();
-      const signInButton = loginModal.querySelector('button[type="submit"]');
-      await signInButton.click();
-    }
+  // Hard guard against null references.
+  if (!captchaImage || !captchaInput) {
+    Logger.warn("Captcha elements vanished before fill — skipping.");
+    return;
   }
 
-// Function to wait for the app-login element to disappear
-async function waitForAppLoginToDisappear() {
-    // Select the app-login element
-    const appLogin = document.querySelector(LOGIN_SELECTORS.LOGIN_COMPONENT);
-  
-    // If the app-login element is not found, return immediately
-    if (!appLogin) {
-      return;
-    }
-  
-    // Create a promise to track the disappearance of the app-login element
-    // eslint-disable-next-line no-unused-vars
-    return new Promise((resolve, reject) => {
-      // Create a mutation observer to watch for changes in the DOM
-      const observer = new MutationObserver((mutationsList, observer) => {
-        // Check if the app-login element is still in the DOM
-        if (!document.contains(appLogin)) {
-          // If the app-login element has been removed, resolve the promise
-          Logger.info('app-login disappear');
-          resolve();
-          // Disconnect the observer
-          observer.disconnect();
-        }
-      });
-  
-      // Start observing changes in the DOM, targeting the removal of the app-login element
-      observer.observe(document.body, { childList: true, subtree: true });
-    });
-  }
+  try {
+    await scrollToElement(captchaInput);
 
-// Export all functions and variables
-export {
-    fillLoginCaptcha,
-    login,
-    waitForAppLoginToDisappear
-};
+    if (typeof captchaInput.focus === "function") {
+      captchaInput.focus();
+    }
+
+    const captchaText = await extractTextFromImage(captchaImage.src);
+    if (captchaText) {
+      await simulateTyping(captchaInput, captchaText);
+      await delay(50);
+      Logger.info("Captcha text entered.");
+    } else {
+      Logger.warn("OCR returned empty captcha text — skipping.");
+    }
+  } catch (err) {
+    // A captcha failure must never abort the rest of the login flow.
+    Logger.warn("Failed automatic captcha resolution, skipping:", err);
+  }
+}
